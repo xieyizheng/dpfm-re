@@ -24,7 +24,12 @@
 - visualization script  
 - fix overlap loss bug
 - Training script
+- cuts holes configs
 
 ## 🔨 TODO  
-- Full datasets 
+- dataset download script
+- cuts holes ckpts
+- augmentation code
+- pfarm
 - evecs number balance in visualization
+- acknowledgements

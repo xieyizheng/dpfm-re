@@ -654,7 +654,7 @@ class PairShrec16Dataset(Dataset):
     def __init__(self,
                  data_root,
                  categories=None,
-                 cut_type='cuts', cp2p=False, return_faces=True,
+                 cut_type='cuts', return_faces=True,
                  return_evecs=True, num_evecs=200,
                  return_corr=False, return_dist=False, return_elas_evecs=False, bending_weight=1e-2, cache=True):
         assert cut_type in ['cuts', 'holes', 'cuts24'], f'Unrecognized cut type: {cut_type}'
@@ -697,28 +697,13 @@ class PairShrec16Dataset(Dataset):
             if not os.path.isdir(dist_path):
                 os.makedirs(dist_path)
 
-        if cp2p:
-            cp2p_test = {"cat":[4,8,10,11,15], "centaur":[1,4,6,11,13], "david":[4,5,12,14,15], "dog":[4,5,11,14,15], "horse":[1,3,5,11,12], "michael":[3,4,11,14,15], "victoria":[1,4,5,11], "wolf":[3,7,8,12,13]}
-        else:
-            cp2p_test = {"cat":[], "centaur":[], "david":[], "dog":[], "horse":[], "michael":[], "victoria":[], "wolf":[]}
-        def remove_test(cat, files):
-            for i in cp2p_test[cat]:
-                try:
-                    files.remove(f'../data/SHREC16/cuts/off/cuts_{cat}_shape_{i}.off')
-                except:
-                    None
-                try:
-                    files.remove(f'../data/SHREC16/cuts/corres/cuts_{cat}_shape_{i}.vts')
-                except:
-                    None
-            return files
+
         # load partial shape files
         self._size = 0
         off_path = os.path.join(data_root, cut_type, 'off')
         assert os.path.isdir(off_path), f'Invalid path {off_path} without .off files.'
         for cat in self.categories:
             partial_off_files = sorted(glob(os.path.join(off_path, f'*{cat}*.off')))
-            partial_off_files = remove_test(cat, partial_off_files)
             assert len(partial_off_files) != 0
             self.partial_off_files[cat] = partial_off_files
             self._size += len(partial_off_files)
@@ -729,7 +714,6 @@ class PairShrec16Dataset(Dataset):
             assert os.path.isdir(corr_path), f'Invalid path {corr_path} without .vts files.'
             for cat in self.categories:
                 partial_corr_files = sorted(glob(os.path.join(corr_path, f'*{cat}*.vts')))
-                partial_corr_files = remove_test(cat, partial_corr_files)
                 assert len(partial_corr_files) == len(self.partial_off_files[cat])
                 self.partial_corr_files[cat] = partial_corr_files
 
