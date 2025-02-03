@@ -15,12 +15,16 @@
 - **Visualizations**: A script for generating figures  
 
 ## ✅ Done  
+- fix nn_interpolate bug
+- fix nce_loss bug
 - `cp2p` test  
 - Geodesic Error  
 - PCK Curve  
 - mIoU & mIoU Curve  
 - visualization script  
+- fix overlap loss bug
+- Training script
 
 ## 🔨 TODO  
 - Full datasets 
-- Training script
+- evecs number balance in visualization

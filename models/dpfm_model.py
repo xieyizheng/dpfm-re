@@ -6,6 +6,7 @@ from utils.registry import MODEL_REGISTRY
 from utils.tensor_util import to_device
 from utils.fmap_util import nn_query, fmap2pointmap
 from utils.dpfm_util import cache_sample_idx, cache_operators
+import os
 
 @MODEL_REGISTRY.register()
 class DPFM_Model(PartialBaseModel):
@@ -14,7 +15,8 @@ class DPFM_Model(PartialBaseModel):
 
     def feed_data(self, data):
         # ----------------- stich code to be cleaned up later------------------------
-        cache_dir = self.opt.get('cache_dir', None)
+        cache_dir = self.data_root
+        cache_dir = os.path.join(cache_dir, 'diffusion')
         cache_operators(data, cache_dir=cache_dir)
         n_fmap = self.opt["networks"]['dpfm_net']['cfg']['fmap']['n_fmap']
         cross_sampling_ratio = self.opt["networks"]['dpfm_net']['cfg']['attention']['cross_sampling_ratio']
@@ -51,11 +53,9 @@ class DPFM_Model(PartialBaseModel):
         C_gt = evecs_trans_y.squeeze() @ P @ evecs_x
         C_gt = C_gt.unsqueeze(0)
 
-
         # loss
         fmap_loss, acc_loss, nce_loss = self.losses["dpfm_loss"](C_gt, C_xy, corr_x, corr_y, use_feat1, use_feat2,
                              overlap_score12, overlap_score21, gt_partiality_mask12, gt_partiality_mask21)
-
 
         self.loss_metrics = {'fmap_loss': fmap_loss, 'acc_loss': acc_loss, 'nce_loss': nce_loss}
 
@@ -68,7 +68,6 @@ class DPFM_Model(PartialBaseModel):
 
         # ----------------- stich code to be cleaned up later------------------------
         cache_dir = self.data_root
-        import os
         cache_dir = os.path.join(cache_dir, 'diffusion')
         cache_operators(data, cache_dir=cache_dir)
         n_fmap = self.opt["networks"]['dpfm_net']['cfg']['fmap']['n_fmap']
