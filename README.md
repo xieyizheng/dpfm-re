@@ -27,6 +27,7 @@
 - cuts holes configs
 
 ## 🔨 TODO  
+- better readme
 - dataset download script
 - cuts holes ckpts
 - augmentation code
