@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from networks.diffusion_net import DiffusionNet
 from utils.dpfm_util import nn_interpolate, get_mask
 from utils.registry import NETWORK_REGISTRY
-from utils.geometry_util import compute_wks_autoscale
+from utils.geometry_util import compute_wks_autoscale, data_augmentation
 
 def MLP(channels: list, do_bn=True):
     """ Multi-layer perceptron """
@@ -176,7 +176,7 @@ class RegularizedFMNet(nn.Module):
 class DPFMNet(nn.Module):
     """Compute the functional map matrix representation."""
 
-    def __init__(self, cfg, input_type=None):
+    def __init__(self, cfg, input_type='xyz', agumentations={'train': {}, 'test': {}}):
         super().__init__()
 
         # feature extractor
@@ -205,6 +205,34 @@ class DPFMNet(nn.Module):
         # input type
         self.input_type = input_type
 
+        # augmentation
+        self.DEFAULT_TRAIN_AUGMENTATIONS = {
+            'rot_x': 30.0,
+            'rot_y': 30.0,
+            'rot_z': 30.0,
+            'std': 0.01,
+            'noise_clip': 0.05,
+            'scale_min': 0.9,
+            'scale_max': 1.1
+        }
+        self.DEFAULT_TEST_AUGMENTATIONS = {
+            'rot_x': 0.0,
+            'rot_y': 0.0,
+            'rot_z': 0.0,
+            'std': 0.0,
+            'noise_clip': 0.0,
+            'scale_min': 1.0,
+            'scale_max': 1.0
+        }
+        self.train_augmentation = {**self.DEFAULT_TRAIN_AUGMENTATIONS, **agumentations["train"]}
+        self.test_augmentation = {**self.DEFAULT_TEST_AUGMENTATIONS, **agumentations["test"]}
+
+        if self.input_type == 'xyz':
+            print("Settings:")
+            print(f"  Input type: {self.input_type}")
+            print(f"  Train augmentations: {self.train_augmentation}")
+            print(f"  Test  augmentations: {self.test_augmentation}")
+
     def forward(self, batch):
         verts1, faces1, mass1, L1, evals1, evecs1, gradX1, gradY1 = (batch["first"]["verts"], batch["first"]["faces"], batch["first"]['operators']["mass"],
                                                                      batch["first"]['operators']["L"], batch["first"]['operators']["evals"], batch["first"]['operators']["evecs"],
@@ -216,19 +244,30 @@ class DPFMNet(nn.Module):
         verts1, faces1, mass1, L1, evals1, evecs1, gradX1, gradY1 = verts1[0], faces1[0], mass1[0], L1[0], evals1[0], evecs1[0], gradX1[0], gradY1[0]
         verts2, faces2, mass2, L2, evals2, evecs2, gradX2, gradY2 = verts2[0], faces2[0], mass2[0], L2[0], evals2[0], evecs2[0], gradX2[0], gradY2[0]
 
-        # set features to vertices
-        features1, features2 = verts1, verts2
+        # Get features based on input type from data dictionary
+        if self.input_type == 'xyz':
+            features1 = batch["first"]['xyz'][0]
+            features2 = batch["second"]['xyz'][0]
+            if self.training:
+                features1 = data_augmentation(verts1.unsqueeze(0), **self.train_augmentation).squeeze(0)
+                features2 = data_augmentation(verts2.unsqueeze(0), **self.train_augmentation).squeeze(0)
+            else:
+                features1 = data_augmentation(verts1.unsqueeze(0), **self.test_augmentation).squeeze(0)
+                features2 = data_augmentation(verts2.unsqueeze(0), **self.test_augmentation).squeeze(0)
 
-        # other input types
-        if self.input_type == 'wks':
-            # wks function takes batch
-            features1 = compute_wks_autoscale(evals1.unsqueeze(0), evecs1.unsqueeze(0), mass1.unsqueeze(0))
-            features2 = compute_wks_autoscale(evals2.unsqueeze(0), evecs2.unsqueeze(0), mass2.unsqueeze(0))
-            # get rid of batch dimension
-            features1, features2 = features1[0], features2[0]
-        elif self.input_type == 'shot':
-            shot1, shot2 = batch["first"]["shot"], batch["second"]["shot"]
-            features1, features2 = shot1[0], shot2[0]
+        elif self.input_type == 'wks':
+            features1 = batch["first"]['wks'][0]
+            features2 = batch["second"]['wks'][0]
+        elif self.input_type == 'hks':
+            features1 = batch["first"]['hks'][0]
+            features2 = batch["second"]['hks'][0]
+        elif self.input_type == 'dino':
+            features1 = batch["first"]['dino'][0]
+            features2 = batch["second"]['dino'][0]
+        else:
+            # Default fallback
+            features1 = batch["first"][self.input_type][0]
+            features2 = batch["second"][self.input_type][0]
 
         feat1 = self.feature_extractor(features1, mass1, L=L1, evals=evals1, evecs=evecs1,
                                        gradX=gradX1, gradY=gradY1, faces=faces1).unsqueeze(0)

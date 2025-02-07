@@ -5,7 +5,7 @@ from .partial_base_model import PartialBaseModel
 from utils.registry import MODEL_REGISTRY
 from utils.tensor_util import to_device
 from utils.fmap_util import nn_query, fmap2pointmap
-from utils.dpfm_util import cache_sample_idx, cache_operators
+from utils.dpfm_util import cache_sample_idx#, cache_operators
 import os
 
 @MODEL_REGISTRY.register()
@@ -17,7 +17,7 @@ class DPFM_Model(PartialBaseModel):
         # ----------------- stich code to be cleaned up later------------------------
         cache_dir = self.data_root
         cache_dir = os.path.join(cache_dir, 'diffusion')
-        cache_operators(data, cache_dir=cache_dir)
+        # cache_operators(data, cache_dir=cache_dir)
         n_fmap = self.opt["networks"]['dpfm_net']['cfg']['fmap']['n_fmap']
         cross_sampling_ratio = self.opt["networks"]['dpfm_net']['cfg']['attention']['cross_sampling_ratio']
         cache_sample_idx(data, cross_sampling_ratio=cross_sampling_ratio, cache_dir=cache_dir) # for caching opereation can use 1.0 and afterwards will be flexible for any ratio
@@ -41,11 +41,11 @@ class DPFM_Model(PartialBaseModel):
         if 'partiality_mask' in data['first'].keys(): # for cp2p when partiality mask is provided in the .map file
             gt_partiality_mask12 = data['first']['partiality_mask'].squeeze()
             gt_partiality_mask21 = data['second']['partiality_mask'].squeeze()
-        else:
-            gt_partiality_mask12 = torch.zeros((evecs_x.shape[0])).long().to(self.device)
-            gt_partiality_mask12[corr_x[corr_x != -1]] = 1
-            gt_partiality_mask21 = torch.zeros((evecs_y.shape[0])).long().to(self.device)
-            gt_partiality_mask21[corr_y[corr_y != -1]] = 1
+        # else:
+        #     gt_partiality_mask12 = torch.zeros((evecs_x.shape[0])).long().to(self.device)
+        #     gt_partiality_mask12[corr_x[corr_x != -1]] = 1
+        #     gt_partiality_mask21 = torch.zeros((evecs_y.shape[0])).long().to(self.device)
+        #     gt_partiality_mask21[corr_y[corr_y != -1]] = 1
 
         # calculate ground truth functional map
         P = torch.zeros((evecs_y.shape[0], evecs_x.shape[0])).to(self.device) # [Ny, Nx]
@@ -69,7 +69,7 @@ class DPFM_Model(PartialBaseModel):
         # ----------------- stich code to be cleaned up later------------------------
         cache_dir = self.data_root
         cache_dir = os.path.join(cache_dir, 'diffusion')
-        cache_operators(data, cache_dir=cache_dir)
+        # cache_operators(data, cache_dir=cache_dir)
         n_fmap = self.opt["networks"]['dpfm_net']['cfg']['fmap']['n_fmap']
         cross_sampling_ratio = self.opt["networks"]['dpfm_net']['cfg']['attention']['cross_sampling_ratio']
         cache_sample_idx(data, cross_sampling_ratio=cross_sampling_ratio, cache_dir=cache_dir) # for caching opereation can use 1.0 and afterwards will be flexible for any ratio

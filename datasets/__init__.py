@@ -12,7 +12,7 @@ import torchvision.transforms as transforms
 from utils import get_root_logger, scandir
 from utils.dist_util import get_dist_info
 from utils.registry import DATASET_REGISTRY
-
+from utils.collate_utils import custom_collate_fn
 __all__ = ['build_dataset', 'build_dataloader']
 
 # automatically scan and import dataset modules for registry
@@ -135,9 +135,8 @@ def build_dataloader(dataset, dataset_opt, phase, num_gpu=1, dist=False, sampler
 
     dataloader_args['pin_memory'] = dataset_opt.get('pin_memory', False)
     
-    # Check if dataset has a custom collate function
-    if hasattr(dataset, 'collate_fn'):
-        dataloader_args['collate_fn'] = dataset.collate_fn
+    # Use dataset's collate_fn if available; otherwise, use custom_collate_fn (handles sparse tensors).
+    dataloader_args['collate_fn'] = dataset.collate_fn if hasattr(dataset, 'collate_fn') else custom_collate_fn
 
     return torch.utils.data.DataLoader(**dataloader_args)
 

@@ -176,20 +176,20 @@ def square_distance(src, dst):
     return dist
 
 
-def cache_operators(data, cache_dir=None):
-    data_x, data_y = data['first'], data['second']
-    if 'operators' not in data_x.keys():
-        cache_dir = cache_dir or data_x.get('cache_dir', None)
-        _, mass, L, evals, evecs, gradX, gradY = get_all_operators(data_x['verts'].cpu(), data_x['faces'].cpu(), k=128,
-                                                                    cache_dir=cache_dir)
+# def cache_operators(data, cache_dir=None):
+#     data_x, data_y = data['first'], data['second']
+#     if 'operators' not in data_x.keys():
+#         cache_dir = cache_dir or data_x.get('cache_dir', None)
+#         _, mass, L, evals, evecs, gradX, gradY = get_all_operators(data_x['verts'].cpu(), data_x['faces'].cpu(), k=128,
+#                                                                     cache_dir=cache_dir)
 
-        data_x['operators'] = {'mass': mass, 'L': L, 'evals': evals, 'evecs': evecs, 'gradX': gradX, 'gradY': gradY}
-        # cache a duplicated clean verts
-        data_x['clean_verts'] = data_x['verts'].clone()
-    if 'operators' not in data_y.keys():
-        cache_dir = cache_dir or data_y.get('cache_dir', None)
-        _, mass, L, evals, evecs, gradX, gradY = get_all_operators(data_y['verts'].cpu(), data_y['faces'].cpu(), k=128,
-                                                                    cache_dir=cache_dir)
-        data_y['operators'] = {'mass': mass, 'L': L, 'evals': evals, 'evecs': evecs, 'gradX': gradX, 'gradY': gradY}
-        # cache a duplicated clean verts
-        data_y['clean_verts'] = data_y['verts'].clone()
+#         data_x['operators'] = {'mass': mass, 'L': L, 'evals': evals, 'evecs': evecs, 'gradX': gradX, 'gradY': gradY}
+#         # cache a duplicated clean verts
+#         data_x['clean_verts'] = data_x['verts'].clone()
+#     if 'operators' not in data_y.keys():
+#         cache_dir = cache_dir or data_y.get('cache_dir', None)
+#         _, mass, L, evals, evecs, gradX, gradY = get_all_operators(data_y['verts'].cpu(), data_y['faces'].cpu(), k=128,
+#                                                                     cache_dir=cache_dir)
+#         data_y['operators'] = {'mass': mass, 'L': L, 'evals': evals, 'evecs': evecs, 'gradX': gradX, 'gradY': gradY}
+#         # cache a duplicated clean verts
+#         data_y['clean_verts'] = data_y['verts'].clone()

@@ -12,96 +12,10 @@ from utils.shape_util import read_shape
 from utils.geometry_util import get_operators, get_elas_operators, get_geodesic_distmat, get_shot_desc
 from utils.tensor_util import to_numpy
 from utils.registry import DATASET_REGISTRY
-
+from utils.shape_dataset_util import get_spectral_ops, get_elas_spectral_ops, sort_list, get_shape_operators_and_data
 from tqdm import tqdm
-import copy
-import trimesh
 import igl
-import pickle
 
-
-def sort_list(l):
-    try:
-        return list(sorted(l, key=lambda x: int(re.search(r'\d+(?=\.)', x).group())))
-    except AttributeError:
-        return sorted(l)
-
-def treat_nan(tensor, verts, name):
-    """
-    Replaces NaN values in a tensor with the nearest non-NaN values from a given vertices tensor.
-
-    Args:
-        tensor (torch.Tensor): The input tensor containing potential NaN values.
-        verts (torch.Tensor): The vertices tensor used for finding nearest non-NaN entries.
-        name (str): The name of the tensor for informative output.
-
-    Returns:
-        torch.Tensor: The modified tensor with NaN values replaced.
-    """
-    # Detect rows with NaN values
-    nan_rows = torch.isnan(tensor).any(dim=1)
-    if nan_rows.any():
-        num_nan_rows = nan_rows.sum().item()
-        nan_row_indices = nan_rows.nonzero(as_tuple=True)[0]
-        print(f'Warning: {num_nan_rows} rows have NaN values in {name}, replacing with nearest non-NaN neighbor')
-        print(f'Row numbers: {nan_row_indices}')
-
-    # Identify non-NaN rows
-    non_nan_rows = ~nan_rows
-    # Calculate distances to nearest non-NaN neighbors
-    nan_verts = verts[nan_rows]
-    non_nan_verts = verts[non_nan_rows]
-    distances = torch.cdist(nan_verts, non_nan_verts)
-    _, nearest_indices = torch.min(distances, dim=1)
-
-    # Replace NaN rows with their nearest non-NaN neighbors
-    tensor[nan_rows] = tensor[non_nan_rows][nearest_indices]
-
-    return tensor
-
-def get_spectral_ops(item, num_evecs, cache_dir=None, dirichlet=False):
-    if not os.path.isdir(cache_dir):
-        os.makedirs(cache_dir)
-    _, mass, L, evals, evecs, _, _ = get_operators(item['verts'], item.get('faces'),
-                                                   k=num_evecs,
-                                                   cache_dir=cache_dir)
-    evecs_trans = evecs.T * mass[None]
-    item['evecs'] = evecs[:, :num_evecs]
-    item['evecs_trans'] = evecs_trans[:num_evecs]
-    item['evals'] = evals[:num_evecs]
-    item['mass'] = mass
-    if dirichlet:
-        item['L'] = L.to_dense() # this to_dense() operation is expensive, opt out if possible
-
-    return item
-
-def get_elas_spectral_ops(item, num_evecs, bending_weight=1e-2, cache_dir=None):
-    if not os.path.isdir(cache_dir):
-        os.makedirs(cache_dir)
-    mass, evals, evecs = get_elas_operators(item['verts'], item.get('faces'),
-                                                   k=num_evecs, bending_weight=bending_weight, 
-                                                   cache_dir=cache_dir)
-    evecs = treat_nan(evecs, item['verts'], item['name'])
-    mass = mass + 1e-8 * mass.mean()
-    sqrtmass = torch.sqrt(mass)
-    
-    def const_proj(evec, sqrtmass):
-        # orthogonal projector for elastic basis
-        sqrtM = torch.diag(sqrtmass)
-        return torch.linalg.pinv(sqrtM @ evec) @ sqrtM
-    evecs_trans = const_proj(evecs[:, :num_evecs], sqrtmass)
-    Mk = evecs.T @ torch.diag(mass) @ evecs
-    item['elas_evecs'] = evecs[:, :num_evecs]
-    item['elas_evecs_trans'] = evecs_trans[:num_evecs]
-    item['elas_evals'] = evals[:num_evecs]
-    item['elas_mass'] = mass
-    item['elas_Mk'] = Mk
-    sqrtMk = scipy.linalg.sqrtm(to_numpy(Mk)).real #numerical weirdness 
-    sqrtMk = torch.tensor(sqrtMk).float().to(Mk.device)
-    invsqrtMk = torch.linalg.pinv(sqrtMk)
-    item['elas_sqrtMk'] = sqrtMk
-    item['elas_invsqrtMk'] = invsqrtMk
-    return item
 
 class SingleShapeDataset(Dataset):
     def __init__(self,
@@ -792,73 +706,6 @@ class PairShrec16Dataset(Dataset):
         return self._size
 
 
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
-import warnings
-
-@dataclass
-class ShapeProcessingConfig:
-    # Existing parameters with defaults
-    return_faces: bool = True
-    return_evecs: bool = True
-    return_elas_evecs: bool = False
-    return_dist: bool = False
-    return_corr: bool = False
-    return_dino: bool = False
-    return_subsample_idx: float = None
-    num_evecs: int = 200
-    bending_weight: float = 1e-2
-    cache_root: Optional[str] = None
-    
-    # Mechanism for forward compatibility
-    extra_args: Dict[str, Any] = field(default_factory=dict)
-    
-    def __post_init__(self):
-        # Handle deprecated parameters
-        if "return_L" in self.extra_args:  # Example deprecation
-            warnings.warn("return_L is deprecated, use return_evecs instead")
-            self.return_evecs = self.extra_args.pop("return_L")
-            
-        # # Validate new parameters
-        # if self.curvature_type not in ["mean", "gaussian"]:
-        #     raise ValueError(f"Invalid curvature_type: {self.curvature_type}")
-
-class ShapeProcessor:
-    def __init__(self, config: ShapeProcessingConfig):
-        self.cfg = config
-        
-    def process_shape(self, item, cache_dir=None):
-        if self.cfg.return_dino:
-            print(f"processed dino for {item['name']}")
-        # if self.cfg.return_subsample_idx:
-        #     from models.dpfm_model import get_sample_idx
-        #     subsample_idx_dir = os.path.join(cache_dir, 'subsample_idx')
-        #     if not os.path.exists(subsample_idx_dir):
-        #         os.makedirs(subsample_idx_dir)
-        #     verts, faces = item['verts'].squeeze(0), item['faces'].squeeze(0)
-        #     dists, idx0, idx1 = get_sample_idx(verts, faces, ratio=self.cfg.return_subsample_idx, cache_dir=subsample_idx_dir)
-        #     print(f"shape of sample idx: {idx0.shape}")
-        #     item['sample_idx'] = (idx0, idx1, dists)
-        #     print(f"processed subsample idx for {item['name']}")
-        # if self.cfg.return_evecs:
-        #     from utils.geometry_util import get_operators
-        #     operators_dir = os.path.join(cache_dir, 'operators')
-        #     if not os.path.exists(operators_dir):
-        #         os.makedirs(operators_dir)
-        #     verts, faces = item['verts'], item['faces']
-        #     _, mass, L, evals, evecs, gradX, gradY = get_operators(verts.cpu(), faces.cpu(), k=128, cache_dir=operators_dir)
-        #     item['operators'] = {'mass': mass, 'L': L, 'evals': evals, 'evecs': evecs, 'gradX': gradX, 'gradY': gradY}
-        #     # cache a duplicated clean verts
-        #     item['clean_verts'] = item['verts'].clone()
-        #     print(f"processed operators for {item['name']}")
-        return item
-    
-    def _add_curvature(self, item):
-        # Implementation for new feature
-        if "faces" not in item:
-            raise ValueError("Faces required for curvature computation")
-            
-        return item
 @DATASET_REGISTRY.register()
 class PairCP2PDataset(Dataset):
     """
@@ -873,16 +720,10 @@ class PairCP2PDataset(Dataset):
                  data_root,
                  categories=None,
                  return_faces=True,
-                 return_evecs=True, num_evecs=200,
-                 return_corr=False, return_dist=False, return_elas_evecs=False, bending_weight=1e-2, cache=True, **kwargs):
-        # Filter processor-related parameters
-        processor_args = {
-            k: kwargs.pop(k) 
-            for k in list(kwargs.keys()) 
-            if k in ShapeProcessingConfig.__annotations__
-        }
-        # Initialize processor
-        self.processor = ShapeProcessor(ShapeProcessingConfig(**processor_args))
+                 return_corr=False, **config):
+        # Store any additional kwargs as instance attributes
+        # self.__dict__.update(config)
+        self.config = config
 
         categories = self.categories if categories is None else categories
         # sanity check
@@ -894,12 +735,7 @@ class PairCP2PDataset(Dataset):
         # initialize
         self.data_root = data_root
         self.return_faces = return_faces
-        self.return_evecs = return_evecs
         self.return_corr = return_corr
-        self.return_dist = return_dist
-        self.num_evecs = num_evecs
-        self.return_elas_evecs = return_elas_evecs
-        self.bending_weight = bending_weight
 
         # partial shape files
         self.partial_off_files = dict()
@@ -914,12 +750,6 @@ class PairCP2PDataset(Dataset):
             partial_off_files = sorted(glob(os.path.join(off_path, f'*{cat}*.off')))
             # assert len(partial_off_files) != 0
             self.partial_off_files[cat] = partial_off_files
-
-        if return_dist:
-            dist_path = os.path.join(data_root, 'dist')
-            if not os.path.isdir(dist_path):
-                os.makedirs(dist_path)
-            
 
         if self.return_corr:
             # check the data path contains .vts files
@@ -958,20 +788,8 @@ class PairCP2PDataset(Dataset):
         partial_data_x['verts'] = torch.from_numpy(verts).float().cpu()
         if self.return_faces:
             partial_data_x['faces'] = torch.from_numpy(faces).long().cpu()
+        partial_data_x = get_shape_operators_and_data(partial_data_x, cache_dir=os.path.join(self.data_root), config=self.config)
 
-        # get eigenfunctions/eigenvalues
-        if self.return_evecs:
-            partial_data_x = get_spectral_ops(partial_data_x, self.num_evecs,
-                                            cache_dir=os.path.join(self.data_root, 'diffusion'))
-        
-        if self.return_elas_evecs:
-            partial_data_x = get_elas_spectral_ops(partial_data_x, num_evecs=self.num_evecs, bending_weight=self.bending_weight, cache_dir=os.path.join(self.data_root, 'elastic'))
-        
-        # get geodesic distance matrix of shape x
-        if self.return_dist:
-            partial_data_x['dist'] = get_geodesic_distmat(partial_data_x['verts'], partial_data_x['faces'], cache_dir=os.path.join(self.data_root, 'dist'))
-        self.processor.process_shape(partial_data_x, cache_dir=os.path.join(self.data_root))
-        # get partial shape_y
         partial_data_y = dict()
         # get vertices
         off_file = os.path.join(self.data_root, 'off', f'{partial_shape_y}.off')
@@ -982,18 +800,7 @@ class PairCP2PDataset(Dataset):
         if self.return_faces:
             partial_data_y['faces'] = torch.from_numpy(faces).long().cpu()
         
-        # get eigenfunctions/eigenvalues
-        if self.return_evecs:
-            partial_data_y = get_spectral_ops(partial_data_y, self.num_evecs,
-                                            cache_dir=os.path.join(self.data_root, 'diffusion'))
-        
-        if self.return_elas_evecs:
-            partial_data_y = get_elas_spectral_ops(partial_data_y, num_evecs=self.num_evecs, bending_weight=self.bending_weight, cache_dir=os.path.join(self.data_root, 'elastic'))
-        
-        # get geodesic distance matrix of shape y
-        if self.return_dist:
-            partial_data_y['dist'] = get_geodesic_distmat(partial_data_y['verts'], partial_data_y['faces'], cache_dir=os.path.join(self.data_root, 'dist'))
-        partial_data_y = self.processor.process_shape(partial_data_y, cache_dir=os.path.join(self.data_root))
+        partial_data_y = get_shape_operators_and_data(partial_data_y, cache_dir=os.path.join(self.data_root), config={**self.config, "return_dist": False})
         # get correspondences
         if self.return_corr: # the .map files from cp2p has quite different structures and contains more information eg. partiality mask
             # ------corr--------
@@ -1025,12 +832,6 @@ class PairCP2PDataset(Dataset):
                 gt_partiality_mask21 = np.zeros(len(partial_data_y['verts']))
                 gt_partiality_mask21[corr_y] = 1
                 partial_data_y['partiality_mask'] = torch.from_numpy(gt_partiality_mask21).float()
-            
-                        
-            # get map21 to ablate nce loss----to be cleaned up later------
-            map21 = corr
-            map21 = torch.from_numpy(map21).long()
-            partial_data_x['map21'] = map21
             # --------------------------
         return {'first': partial_data_x, 'second': partial_data_y}
 

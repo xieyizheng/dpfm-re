@@ -25,12 +25,20 @@
 - fix overlap loss bug
 - Training script
 - cuts holes configs
+- custom collate function
+- refactor diffsion file loading (optional: use evecs from dataset, load diff from verts and faces)
+- augmentation code
+- xyz augmentation transformation refactors:
+- verts as unique identifier for loading shape properties
+- xyz as the thing to freely transfrom, augment, anywhere in the pipeline, dataset, model, diffusion net, etc. 
+- preprocess script with simple iteration
+- dataset upload (shrec16 from ulrssm, cp2p and pfarm are mit licensed)
 
 ## 🔨 TODO  
-- better readme
-- dataset download script
 - cuts holes ckpts
-- augmentation code
 - pfarm
+- better readme
+- refactor diffusionnet
 - evecs number balance in visualization
 - acknowledgements
+- optional preprocess script with dataloader to enable parallel preprocess with multiple workers
