@@ -1,5 +1,8 @@
 import torch
 import torch.nn as nn
+from utils.registry import NETWORK_REGISTRY
+from utils.geometry_util import compute_wks_autoscale, data_augmentation, hash_arrays, torch2np
+from utils.temp_seed_util import temp_seed
 def to_basis(values, basis, massvec):
     """
     Transform data in to an orthonormal basis (where orthonormal is wrt to massvec)
@@ -258,14 +261,14 @@ class DiffusionNetBlock(nn.Module):
 
         return x0_out
 
-
+@NETWORK_REGISTRY.register()
 class DiffusionNet(nn.Module):
     def __init__(
         self,
-        C_in,
-        C_out,
-        C_width=128,
-        N_block=4,
+        in_channels,
+        out_channels,
+        hidden_channels=128,
+        n_block=4,
         last_activation=None,
         outputs_at="vertices",
         mlp_hidden_dims=None,
@@ -273,18 +276,20 @@ class DiffusionNet(nn.Module):
         with_gradient_features=True,
         with_gradient_rotations=True,
         diffusion_method="spectral",
+        input_type="xyz",
+        augmentation={'train': {}, 'test': {}}
     ):
         """
         Construct a DiffusionNet.
         Parameters:
-            C_in (int):                     input dimension
-            C_out (int):                    output dimension
+            in_channels (int):                     input dimension
+            out_channels (int):                    output dimension
             last_activation (func)          a function to apply to the final outputs of the network, such as torch.nn.functional.log_softmax (default: None)
             outputs_at (string)             produce outputs at various mesh elements by averaging from vertices. One of ['vertices', 'edges', 'faces'].
             (default 'vertices', aka points for a point cloud)
-            C_width (int):                  dimension of internal DiffusionNet blocks (default: 128)
-            N_block (int):                  number of DiffusionNet blocks (default: 4)
-            mlp_hidden_dims (list of int):  a list of hidden layer sizes for MLPs (default: [C_width, C_width])
+            hidden_channels (int):                  dimension of internal DiffusionNet blocks (default: 128)
+            n_block (int):                  number of DiffusionNet blocks (default: 4)
+            mlp_hidden_dims (list of int):  a list of hidden layer sizes for MLPs (default: [hidden_channels, hidden_channels])
             dropout (bool):                 if True, internal MLPs use dropout (default: True)
             diffusion_method (string):      how to evaluate diffusion, one of ['spectral', 'implicit_dense']. If implicit_dense is used, can set k_eig=0,
             saving precompute.
@@ -295,13 +300,41 @@ class DiffusionNet(nn.Module):
 
         super(DiffusionNet, self).__init__()
 
-        # # Store parameters
+        # Store parameters
+        self.input_type = input_type
+        # augmentation
+        self.DEFAULT_TRAIN_AUGMENTATIONS = {
+            'rot_x': 30.0,
+            'rot_y': 30.0,
+            'rot_z': 30.0,
+            'std': 0.01,
+            'noise_clip': 0.05,
+            'scale_min': 0.9,
+            'scale_max': 1.1
+        }
+        self.DEFAULT_TEST_AUGMENTATIONS = {
+            'rot_x': 0.0,
+            'rot_y': 0.0,
+            'rot_z': 0.0,
+            'std': 0.0,
+            'noise_clip': 0.0,
+            'scale_min': 1.0,
+            'scale_max': 1.0
+        }
+        self.train_augmentation = {**self.DEFAULT_TRAIN_AUGMENTATIONS, **(augmentation.get("train", {}) or {})}
+        self.test_augmentation = {**self.DEFAULT_TEST_AUGMENTATIONS, **(augmentation.get("test", {}) or {})}
+
+        if self.input_type == 'xyz':
+            print("Settings:")
+            print(f"  Input type: {self.input_type}")
+            print(f"  Train augmentations: {self.train_augmentation}")
+            print(f"  Test  augmentations: {self.test_augmentation}")
 
         # Basic parameters
-        self.C_in = C_in
-        self.C_out = C_out
-        self.C_width = C_width
-        self.N_block = N_block
+        self.C_in = in_channels
+        self.C_out = out_channels
+        self.C_width = hidden_channels
+        self.N_block = n_block
 
         # Outputs
         self.last_activation = last_activation
@@ -311,7 +344,7 @@ class DiffusionNet(nn.Module):
 
         # MLP options
         if mlp_hidden_dims is None:
-            mlp_hidden_dims = [C_width, C_width]
+            mlp_hidden_dims = [self.C_width, self.C_width]
         self.mlp_hidden_dims = mlp_hidden_dims
         self.dropout = dropout
 
@@ -327,19 +360,19 @@ class DiffusionNet(nn.Module):
         # # Set up the network
 
         # First and last affine layers
-        self.first_lin = nn.Linear(C_in, C_width)
-        self.last_lin = nn.Linear(C_width, C_out)
+        self.first_lin = nn.Linear(self.C_in, self.C_width)
+        self.last_lin = nn.Linear(self.C_width, self.C_out)
 
         # DiffusionNet blocks
         self.blocks = []
         for i_block in range(self.N_block):
             block = DiffusionNetBlock(
-                C_width=C_width,
-                mlp_hidden_dims=mlp_hidden_dims,
-                dropout=dropout,
-                diffusion_method=diffusion_method,
-                with_gradient_features=with_gradient_features,
-                with_gradient_rotations=with_gradient_rotations,
+                C_width=self.C_width,
+                mlp_hidden_dims=self.mlp_hidden_dims,
+                dropout=self.dropout,
+                diffusion_method=self.diffusion_method,
+                with_gradient_features=self.with_gradient_features,
+                with_gradient_rotations=self.with_gradient_rotations,
             )
 
             self.blocks.append(block)
@@ -347,15 +380,7 @@ class DiffusionNet(nn.Module):
 
     def forward(
         self,
-        x_in,
-        mass,
-        L=None,
-        evals=None,
-        evecs=None,
-        gradX=None,
-        gradY=None,
-        edges=None,
-        faces=None,
+        data
     ):
         """
         A forward pass on the DiffusionNet.
@@ -379,40 +404,27 @@ class DiffusionNet(nn.Module):
         Returns:
             x_out (tensor):    Output with dimension [N,C_out] or [B,N,C_out]
         """
-
-        # # Check dimensions, and append batch dimension if not given
-        if x_in.shape[-1] != self.C_in:
-            raise ValueError(
-                "DiffusionNet was constructed with C_in={}, but x_in has last dim={}".format(
-                    self.C_in, x_in.shape[-1]
-                )
-            )
-        if len(x_in.shape) == 2:
-            appended_batch_dim = True
-
-            # add a batch dim to all inputs
-            x_in = x_in.unsqueeze(0)
-            mass = mass.unsqueeze(0)
-            if L is not None:
-                L = L.unsqueeze(0)
-            if evals is not None:
-                evals = evals.unsqueeze(0)
-            if evecs is not None:
-                evecs = evecs.unsqueeze(0)
-            if gradX is not None:
-                gradX = gradX.unsqueeze(0)
-            if gradY is not None:
-                gradY = gradY.unsqueeze(0)
-            if edges is not None:
-                edges = edges.unsqueeze(0)
-            if faces is not None:
-                faces = faces.unsqueeze(0)
-
-        elif len(x_in.shape) == 3:
-            appended_batch_dim = False
-
+        if self.input_type == 'xyz':
+            x_in = data['xyz']
+            if self.training:
+                x_in = data_augmentation(x_in, **self.train_augmentation)
+            else:
+                hash = hash_arrays([torch2np(data['verts']), torch2np(data['faces'])])
+                seed = int(hash, 16) % (2**32)
+                with temp_seed(seed):
+                    x_in = data_augmentation(x_in, **self.test_augmentation)
+        elif self.input_type == 'wks':
+            x_in = data['wks']
+        elif self.input_type == 'hks':
+            x_in = data['hks']
+        elif self.input_type == 'dino':
+            x_in = data['dino']
         else:
-            raise ValueError("x_in should be tensor with shape [N,C] or [B,N,C]")
+            x_in = data[self.input_type]
+        
+        mass, L, evals, evecs, gradX, gradY = data['operators']['mass'], data['operators']['L'], \
+                                                    data['operators']['evals'], data['operators']['evecs'], \
+                                                    data['operators']['gradX'], data['operators']['gradY']
 
         # Apply the first linear layer
         x = self.first_lin(x_in)
@@ -428,26 +440,8 @@ class DiffusionNet(nn.Module):
         if self.outputs_at == "vertices":
             x_out = x
 
-        elif self.outputs_at == "edges":
-            # Remap to edges
-            x_gather = x.unsqueeze(-1).expand(-1, -1, -1, 2)
-            edges_gather = edges.unsqueeze(2).expand(-1, -1, x.shape[-1], -1)
-            xe = torch.gather(x_gather, 1, edges_gather)
-            x_out = torch.mean(xe, dim=-1)
-
-        elif self.outputs_at == "faces":
-            # Remap to faces
-            x_gather = x.unsqueeze(-1).expand(-1, -1, -1, 3)
-            faces_gather = faces.unsqueeze(2).expand(-1, -1, x.shape[-1], -1)
-            xf = torch.gather(x_gather, 1, faces_gather)
-            x_out = torch.mean(xf, dim=-1)
-
         # Apply last nonlinearity if specified
         if self.last_activation is not None:
             x_out = self.last_activation(x_out)
-
-        # Remove batch dim if we added it
-        if appended_batch_dim:
-            x_out = x_out.squeeze(0)
 
         return x_out

@@ -2,37 +2,46 @@ import os
 import re
 import torch
 import scipy.linalg
-import numpy as np
-from utils.geometry_util import get_operators, get_elas_operators, get_geodesic_distmat
+from utils.tensor_util import to_numpy
+from utils.geometry_util import get_operators
+from utils.elastic_util import get_elas_operators
+from utils.shape_util import get_geodesic_distmat
+from utils.shot_util import get_shot_desc
+from utils.dino_util import get_dino_features
 
 def get_shape_operators_and_data(item, cache_dir, config):
     """Get spectral and elastic operators for a shape."""
     verts, faces = item['verts'], item['faces']
 
     if config.get('return_evecs', True):
-        item = get_spectral_ops(
-            item,
-            num_evecs=config.get('num_evecs', 200),
-            cache_dir=os.path.join(cache_dir, 'diffusion')
-        )
+        item = get_spectral_ops(item, num_evecs=config.get('num_evecs', 200), cache_dir=os.path.join(cache_dir, 'diffusion'))
 
     if config.get('return_elas_evecs', False):
-        item = get_elas_spectral_ops(
-            item,
-            num_evecs=config.get('num_evecs', 200),
-            bending_weight=config.get('bending_weight', 1e-2),
-            cache_dir=os.path.join(cache_dir, 'elastic')
-        )
+        item = get_elas_spectral_ops(item, num_evecs=config.get('num_evecs', 200), bending_weight=config.get('bending_weight', 1e-2), cache_dir=os.path.join(cache_dir, 'elastic'))
     
     if config.get('return_dist', False):
         item['dist'] = get_geodesic_distmat(verts, faces, cache_dir=os.path.join(cache_dir, 'dist'))
     
-    # xyz
+    if config.get('return_shot', False):
+        item['shot'] = get_shot_desc(verts, faces, cache_dir=os.path.join(cache_dir, 'shot'))
+    
+    if config.get('return_dino', False):
+        item['dino'] = get_dino_features(verts, faces, cache_dir=os.path.join(cache_dir, 'dino'))
+    
     item['xyz'] = verts
     
     return item
 
-def get_spectral_ops(item, num_evecs, cache_dir=None, dirichlet=False):
+
+
+
+
+
+
+
+
+
+def get_spectral_ops(item, num_evecs, cache_dir=None):
     if not os.path.isdir(cache_dir):
         os.makedirs(cache_dir)
     

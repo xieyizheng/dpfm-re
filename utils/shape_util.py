@@ -1,4 +1,3 @@
-import os
 import numpy as np
 import trimesh
 import networkx as nx
@@ -9,6 +8,7 @@ from scipy.sparse.csgraph import shortest_path
 from sklearn import neighbors
 
 import warnings
+from utils.cache_util import get_cached_compute
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 
@@ -39,6 +39,20 @@ def compute_geodesic_distmat(verts, faces):
     if np.any(np.isinf(geodesic_x)):
         print('Inf number in geodesic distance. Increase NN.')
     return geodesic_x
+
+def get_geodesic_distmat(verts, faces, cache_dir=None):
+    """
+    Compute geodesic distance matrix between vertices.
+    Uses caching to avoid recomputing for the same mesh.
+    
+    Args:
+        verts (torch.Tensor): Vertex positions [V, 3]
+        faces (torch.Tensor): Face indices [F, 3]
+        cache_dir (str, optional): Directory to cache results. Default None.
+    Returns:
+        torch.Tensor: Geodesic distance matrix [V, V]
+    """
+    return get_cached_compute(compute_geodesic_distmat, verts, faces, cache_dir=cache_dir)
 
 
 def read_shape(file, as_cloud=False):

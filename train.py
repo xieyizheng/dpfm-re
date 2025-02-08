@@ -154,7 +154,7 @@ def train_pipeline(root_path):
                     torch.cuda.empty_cache()
                     model.data_root = val_loader.dataset.data_root
                     model.validation(val_loader, tb_logger)
-
+                model.data_root = train_loader.dataset.data_root
                 data_timer.start()
                 iter_timer.start()
                 # end of iter

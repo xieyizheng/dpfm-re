@@ -2,10 +2,9 @@ from copy import deepcopy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from networks.diffusion_net import DiffusionNet
+from networks.diffusion_network import DiffusionNet
 from utils.dpfm_util import nn_interpolate, get_mask
 from utils.registry import NETWORK_REGISTRY
-from utils.geometry_util import compute_wks_autoscale, data_augmentation
 
 def MLP(channels: list, do_bn=True):
     """ Multi-layer perceptron """
@@ -56,7 +55,6 @@ class AttentionalPropagation(nn.Module):
         message = self.attn(x, source, source)
         return self.mlp(torch.cat([x, message], dim=1))
 
-@NETWORK_REGISTRY.register()
 class CrossAttentionRefinementNet(nn.Module):
     def __init__(self, n_in=128, num_head=4, gnn_dim=512, overlap_feat_dim=32, n_layers=2, cross_sampling_ratio=0.15, attention_type="normal"):
         super().__init__()
@@ -119,7 +117,6 @@ class CrossAttentionRefinementNet(nn.Module):
 
         return ref_feat_x, ref_feat_y, overlap_score_x, overlap_score_y
 
-@NETWORK_REGISTRY.register()
 class OverlapPredictorNet(nn.Module):
     def __init__(self, overlap_feat_dim=32):
         super().__init__()
@@ -172,22 +169,25 @@ class RegularizedFMNet(nn.Module):
         C = torch.cat(C_i, dim=1)
 
         return C
+
 @NETWORK_REGISTRY.register()
 class DPFMNet(nn.Module):
     """Compute the functional map matrix representation."""
 
-    def __init__(self, cfg, input_type='xyz', agumentations={'train': {}, 'test': {}}):
+    def __init__(self, cfg, input_type='xyz', augmentation={'train': {}, 'test': {}}):
         super().__init__()
 
         # feature extractor
         self.feature_extractor = DiffusionNet(
-            C_in=cfg["fmap"]["C_in"],
-            C_out=cfg["fmap"]["n_feat"],
-            C_width=128,
-            N_block=4,
+            in_channels=cfg["fmap"]["C_in"],
+            out_channels=cfg["fmap"]["n_feat"],
+            hidden_channels=128,
+            n_block=4,
             dropout=True,
             with_gradient_features=True,
             with_gradient_rotations=True,
+            input_type=input_type,
+            augmentation=augmentation
         )
 
         # cross attention refinement
@@ -201,95 +201,3 @@ class DPFMNet(nn.Module):
         self.fmreg_net = RegularizedFMNet(lambda_=cfg["fmap"]["lambda_"], resolvant_gamma=cfg["fmap"]["resolvant_gamma"])
         self.n_fmap = cfg["fmap"]["n_fmap"]
         self.robust = cfg["fmap"]["robust"]
-
-        # input type
-        self.input_type = input_type
-
-        # augmentation
-        self.DEFAULT_TRAIN_AUGMENTATIONS = {
-            'rot_x': 30.0,
-            'rot_y': 30.0,
-            'rot_z': 30.0,
-            'std': 0.01,
-            'noise_clip': 0.05,
-            'scale_min': 0.9,
-            'scale_max': 1.1
-        }
-        self.DEFAULT_TEST_AUGMENTATIONS = {
-            'rot_x': 0.0,
-            'rot_y': 0.0,
-            'rot_z': 0.0,
-            'std': 0.0,
-            'noise_clip': 0.0,
-            'scale_min': 1.0,
-            'scale_max': 1.0
-        }
-        self.train_augmentation = {**self.DEFAULT_TRAIN_AUGMENTATIONS, **agumentations["train"]}
-        self.test_augmentation = {**self.DEFAULT_TEST_AUGMENTATIONS, **agumentations["test"]}
-
-        if self.input_type == 'xyz':
-            print("Settings:")
-            print(f"  Input type: {self.input_type}")
-            print(f"  Train augmentations: {self.train_augmentation}")
-            print(f"  Test  augmentations: {self.test_augmentation}")
-
-    def forward(self, batch):
-        verts1, faces1, mass1, L1, evals1, evecs1, gradX1, gradY1 = (batch["first"]["verts"], batch["first"]["faces"], batch["first"]['operators']["mass"],
-                                                                     batch["first"]['operators']["L"], batch["first"]['operators']["evals"], batch["first"]['operators']["evecs"],
-                                                                     batch["first"]['operators']["gradX"], batch["first"]['operators']["gradY"])
-        verts2, faces2, mass2, L2, evals2, evecs2, gradX2, gradY2 = (batch["second"]["verts"], batch["second"]["faces"], batch["second"]['operators']["mass"],
-                                                                     batch["second"]['operators']["L"], batch["second"]['operators']["evals"], batch["second"]['operators']["evecs"],
-                                                                     batch["second"]['operators']["gradX"], batch["second"]['operators']["gradY"])
-        # let's get rid of all the batch dimensions, assume batch size is always 1 so just index in 0
-        verts1, faces1, mass1, L1, evals1, evecs1, gradX1, gradY1 = verts1[0], faces1[0], mass1[0], L1[0], evals1[0], evecs1[0], gradX1[0], gradY1[0]
-        verts2, faces2, mass2, L2, evals2, evecs2, gradX2, gradY2 = verts2[0], faces2[0], mass2[0], L2[0], evals2[0], evecs2[0], gradX2[0], gradY2[0]
-
-        # Get features based on input type from data dictionary
-        if self.input_type == 'xyz':
-            features1 = batch["first"]['xyz'][0]
-            features2 = batch["second"]['xyz'][0]
-            if self.training:
-                features1 = data_augmentation(verts1.unsqueeze(0), **self.train_augmentation).squeeze(0)
-                features2 = data_augmentation(verts2.unsqueeze(0), **self.train_augmentation).squeeze(0)
-            else:
-                features1 = data_augmentation(verts1.unsqueeze(0), **self.test_augmentation).squeeze(0)
-                features2 = data_augmentation(verts2.unsqueeze(0), **self.test_augmentation).squeeze(0)
-
-        elif self.input_type == 'wks':
-            features1 = batch["first"]['wks'][0]
-            features2 = batch["second"]['wks'][0]
-        elif self.input_type == 'hks':
-            features1 = batch["first"]['hks'][0]
-            features2 = batch["second"]['hks'][0]
-        elif self.input_type == 'dino':
-            features1 = batch["first"]['dino'][0]
-            features2 = batch["second"]['dino'][0]
-        else:
-            # Default fallback
-            features1 = batch["first"][self.input_type][0]
-            features2 = batch["second"][self.input_type][0]
-
-        feat1 = self.feature_extractor(features1, mass1, L=L1, evals=evals1, evecs=evecs1,
-                                       gradX=gradX1, gradY=gradY1, faces=faces1).unsqueeze(0)
-        feat2 = self.feature_extractor(features2, mass2, L=L2, evals=evals2, evecs=evecs2,
-                                       gradX=gradX2, gradY=gradY2, faces=faces2).unsqueeze(0)
-        
-
-        # refine features
-        ref_feat1, ref_feat2, overlap_score12, overlap_score21 = self.feat_refiner(verts1, verts2, feat1, feat2, batch)
-        use_feat1, use_feat2 = (ref_feat1, ref_feat2) if self.robust else (feat1, feat2)
-
-        # squeeze evecs, mass
-        evecs1, evecs2 = evecs1.squeeze(0), evecs2.squeeze(0)
-        mass1, mass2 = mass1.squeeze(0), mass2.squeeze(0)
-        evals1, evals2 = evals1.squeeze(0), evals2.squeeze(0)
-        # predict fmap
-        evecs_trans1, evecs_trans2 = evecs1.t()[:self.n_fmap] @ torch.diag(mass1), evecs2.t()[:self.n_fmap] @ torch.diag(mass2)
-        evals1, evals2 = evals1[:self.n_fmap], evals2[:self.n_fmap]
-        C_pred = self.fmreg_net(use_feat1, use_feat2, evals1, evals2, evecs_trans1, evecs_trans2)
-
-
-        return C_pred, overlap_score12, overlap_score21, use_feat1, use_feat2
-
-
-

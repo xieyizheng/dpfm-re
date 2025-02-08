@@ -1,5 +1,5 @@
 # util functions from DPFM repository
-
+import os
 import torch
 from utils.geometry_util import get_all_operators, torch2np, hash_arrays
 import os.path as osp
@@ -84,7 +84,7 @@ def get_sample_idx(verts, faces, ratio=1.0, cache_dir=None):
 
     found = False
     if cache_dir:
-        assert osp.isdir(cache_dir)
+        os.makedirs(cache_dir, exist_ok=True)
         hash_key_str = "sample_idx" + str(ratio) + str(hash_arrays((verts_np, faces_np))) # sample idx hash string
 
         # Search through buckets with matching hashes.
@@ -174,22 +174,3 @@ def square_distance(src, dst):
     dist += torch.sum(src ** 2, -1).view(B, N, 1)
     dist += torch.sum(dst ** 2, -1).view(B, 1, M)
     return dist
-
-
-# def cache_operators(data, cache_dir=None):
-#     data_x, data_y = data['first'], data['second']
-#     if 'operators' not in data_x.keys():
-#         cache_dir = cache_dir or data_x.get('cache_dir', None)
-#         _, mass, L, evals, evecs, gradX, gradY = get_all_operators(data_x['verts'].cpu(), data_x['faces'].cpu(), k=128,
-#                                                                     cache_dir=cache_dir)
-
-#         data_x['operators'] = {'mass': mass, 'L': L, 'evals': evals, 'evecs': evecs, 'gradX': gradX, 'gradY': gradY}
-#         # cache a duplicated clean verts
-#         data_x['clean_verts'] = data_x['verts'].clone()
-#     if 'operators' not in data_y.keys():
-#         cache_dir = cache_dir or data_y.get('cache_dir', None)
-#         _, mass, L, evals, evecs, gradX, gradY = get_all_operators(data_y['verts'].cpu(), data_y['faces'].cpu(), k=128,
-#                                                                     cache_dir=cache_dir)
-#         data_y['operators'] = {'mass': mass, 'L': L, 'evals': evals, 'evecs': evecs, 'gradX': gradX, 'gradY': gradY}
-#         # cache a duplicated clean verts
-#         data_y['clean_verts'] = data_y['verts'].clone()

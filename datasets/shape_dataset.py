@@ -8,9 +8,7 @@ import torch
 import scipy
 from torch.utils.data import Dataset
 
-from utils.shape_util import read_shape
-from utils.geometry_util import get_operators, get_elas_operators, get_geodesic_distmat, get_shot_desc
-from utils.tensor_util import to_numpy
+from utils.shape_util import get_geodesic_distmat, read_shape
 from utils.registry import DATASET_REGISTRY
 from utils.shape_dataset_util import get_spectral_ops, get_elas_spectral_ops, sort_list, get_shape_operators_and_data
 from tqdm import tqdm

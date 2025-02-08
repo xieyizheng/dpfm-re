@@ -8,7 +8,7 @@ def custom_collate_fn(batch):
     '''
     elem = batch[0]
     if isinstance(elem, torch.Tensor) and elem.is_sparse  :
-        return batch
+        return elem.unsqueeze(0) # very lazy way: we just assume batch size is always 1 for sparse
     elif isinstance(elem, str):  # Strings -> List
         return batch  # Just return as a list
     elif isinstance(elem, Mapping):  # Dict -> Recursively collate per key

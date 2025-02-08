@@ -33,12 +33,22 @@
 - xyz as the thing to freely transfrom, augment, anywhere in the pipeline, dataset, model, diffusion net, etc. 
 - preprocess script with simple iteration
 - dataset upload (shrec16 from ulrssm, cp2p and pfarm are mit licensed)
+- a cache wrapper func for easy cache usage
+- clean up the shape quantity caching and loading logic
+- fix random seed for xyz test augmentations for consistent results
+apparently test augmentations reproducibility and variability is not easy to implement....
+solution: use deterministic hash to get reproducible seed for each pair, just like our cache logic.
+- refactor diffusionnet
+- discovered a bug in ulrssm diffusionnet, the gradient rotation is not applied correctly. We stick to original official diffusionnet implementation from nmwsharp and dpfm for the future. 
+- refactor diffusionnet, dpfm signatures
 
 ## 🔨 TODO  
+- save best model logic
+- optional preprocess script with dataloader to enable parallel preprocess with multiple workers
+- propogate shape dataset loading logic to other datasets
 - cuts holes ckpts
 - pfarm
-- better readme
-- refactor diffusionnet
 - evecs number balance in visualization
 - acknowledgements
-- optional preprocess script with dataloader to enable parallel preprocess with multiple workers
+- better readme
+
