@@ -1,3 +1,12 @@
+"""
+This implementation follows the original DiffusionNet (Sharp et al.) and DPFM (Attaki et al.) implementations.
+CAUTION: THIS IS DIFFERENT FROM IMPLEMENTATIONS of (Cao et al. 2022-2024 works and its derivatives eg. Bastian&Xie et al. 2024, etc.)
+The single line of core difference is not having the complex spatial gradient feature computation bug. 
+layer names are kept different to avoid confusion between implementations and a hard wall to prevent ckpt loading confusion.
+In a rule of thumb, this implementation should be favored for correct computation and for future research
+However in practice the actual effect has been empirically minimal and the exact impact is to be studied.
+"""
+
 import torch
 import torch.nn as nn
 from utils.registry import NETWORK_REGISTRY

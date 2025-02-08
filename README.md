@@ -41,14 +41,14 @@ solution: use deterministic hash to get reproducible seed for each pair, just li
 - refactor diffusionnet
 - discovered a bug in ulrssm diffusionnet, the gradient rotation is not applied correctly. We stick to original official diffusionnet implementation from nmwsharp and dpfm for the future. 
 - refactor diffusionnet, dpfm signatures
+- will not do it. optional preprocess script with dataloader to enable parallel preprocess with multiple workers: tried it, but there is no real difference on my machine, so rather keep it simple
+- save best model logic
 
 ## 🔨 TODO  
-- save best model logic
-- optional preprocess script with dataloader to enable parallel preprocess with multiple workers
 - propogate shape dataset loading logic to other datasets
-- cuts holes ckpts
 - pfarm
 - evecs number balance in visualization
-- acknowledgements
-- better readme
+- val loss logging
+- cuts holes ckpts
+- better readme (acknowledgements)
 

@@ -254,6 +254,8 @@ class BaseModel:
                 self.best_metric = metrics_result['avg_error']
                 self.best_networks_state_dict = self._get_networks_state_dict()
                 logger.info(f'Best model is updated, average geodesic error: {self.best_metric:.4f}')
+                # save current best model
+                self.save_model(net_only=False, best=True, save_filename="best.pth")
 
         # train mode
         self.train()
@@ -464,7 +466,7 @@ class BaseModel:
             self.networks[name].eval()
 
     @master_only
-    def save_model(self, net_only=False, best=False):
+    def save_model(self, net_only=False, best=False, save_filename=None):
         """
         Save model during training, which will be used for resuming.
         Args:
@@ -494,7 +496,8 @@ class BaseModel:
             for name in self.schedulers:
                 state_dict['schedulers'][name] = self.schedulers[name].state_dict()
 
-            save_filename = f'{self.curr_iter}.pth'
+            if save_filename is None:
+                save_filename = f'{self.curr_iter}.pth'
 
         save_path = os.path.join(self.opt['path']['models'], save_filename)
 

@@ -12,7 +12,8 @@ def preprocess_dataset(root_path):
     
     # Process each dataset in the config
     for dataset_name, dataset_opt in opt["datasets"].items():
-        
+        if isinstance(dataset_opt, int):  # skip batch_size, num_worker entries
+            continue
         # Print dataset config
         print("\n" + "="*50)
         print(f"Dataset: {dataset_name}")

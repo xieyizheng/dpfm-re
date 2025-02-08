@@ -188,6 +188,8 @@ class PartialBaseModel(BaseModel):
                 self.best_metric = metrics_result['avg_error']
                 self.best_networks_state_dict = self._get_networks_state_dict()
                 logger.info(f'Best model is updated, average geodesic error: {self.best_metric:.4f}')
+                # save current best model
+                self.save_model(net_only=False, best=True, save_filename="best.pth")
 
         # train mode
         self.train()
