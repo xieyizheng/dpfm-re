@@ -18,8 +18,7 @@ import igl
 class SingleShapeDataset(Dataset):
     def __init__(self,
                  data_root, return_faces=True,
-                 return_evecs=True, num_evecs=200,
-                 return_corr=True, return_dist=False, return_elas_evecs=False, bending_weight=1e-2, cache=True):
+                 return_corr=True, **config):
         """
         Single Shape Dataset
 
@@ -31,18 +30,14 @@ class SingleShapeDataset(Dataset):
             return_corr (bool, optional): Indicate whether return the correspondences to reference shape. Default True.
             return_dist (bool, optional): Indicate whether return the geodesic distance of the shape. Default False.
         """
+        self.config = config
         # sanity check
         assert os.path.isdir(data_root), f'Invalid data root: {data_root}.'
 
         # initialize
         self.data_root = data_root
         self.return_faces = return_faces
-        self.return_evecs = return_evecs
         self.return_corr = return_corr
-        self.return_dist = return_dist
-        self.num_evecs = num_evecs
-        self.return_elas_evecs = return_elas_evecs
-        self.bending_weight = bending_weight
 
         self.off_files = []
         self.corr_files = [] if self.return_corr else None
@@ -62,54 +57,6 @@ class SingleShapeDataset(Dataset):
             # warn message print
             print("WARNING: no phase specified for dataset, using no_phase")
 
-        # check the cache
-        self.cache = cache
-        if cache:
-            cache_path_name = os.path.join(self.data_root, 'cache', str(self.num_evecs)+'_'+self.phase+"_dataset.pt")
-            if self.return_elas_evecs:
-                cache_path_name = os.path.join(self.data_root, 'cache', str(self.bending_weight)+'_'+str(self.num_evecs)+'_'+self.phase+"_elas_dataset.pt")
-            print("using dataset cache path: " + str(cache_path_name))
-            if os.path.exists(cache_path_name):
-                print("  --> loading dataset from cache")
-                self.item_list = torch.load(cache_path_name)
-                return
-            print("  --> dataset not in cache, repopulating")
-            
-            # populate the cache
-            self.item_list = []
-            for index in tqdm(range(self._size)):
-                item = dict()
-
-                # get shape name
-                off_file = self.off_files[index]
-                basename = os.path.splitext(os.path.basename(off_file))[0]
-                item['name'] = basename
-
-                # get vertices and faces
-                verts, faces = read_shape(off_file)
-                item['verts'] = torch.from_numpy(verts).float()
-                if True or self.return_faces:
-                    item['faces'] = torch.from_numpy(faces).long()
-                
-                # get eigenfunctions/eigenvalues
-                if self.return_evecs:
-                    item = get_spectral_ops(item, num_evecs=self.num_evecs, cache_dir=os.path.join(self.data_root, 'diffusion'))
-                
-                # get elastic eigenfunctions/eigenvalues
-                if self.return_elas_evecs:
-                    item = get_elas_spectral_ops(item, num_evecs=self.num_evecs, bending_weight=self.bending_weight, cache_dir=os.path.join(self.data_root, 'elastic'))
-
-                # get correspondences
-                if self.return_corr:
-                    corr = np.loadtxt(self.corr_files[index], dtype=np.int32) - 1  # minus 1 to start from 0
-                    item['corr'] = torch.from_numpy(corr).long()
-                
-                # do not cache geodesic distance matrix because it is too large
-
-                self.item_list.append(item)
-            os.makedirs(os.path.join(self.data_root, 'cache'), exist_ok=True)
-            torch.save(self.item_list, cache_path_name)
-
 
     def _init_data(self):
         # check the data path contains .off files
@@ -123,25 +70,8 @@ class SingleShapeDataset(Dataset):
             assert os.path.isdir(corr_path), f'Invalid path {corr_path} not containing .vts files'
             self.corr_files = sort_list(glob(f'{corr_path}/*.vts'))
 
-        # check the data path contains .mat files
-        if self.return_dist:
-            dist_path = os.path.join(self.data_root, 'dist')
-            if not os.path.isdir(dist_path):
-                os.makedirs(dist_path)
 
     def __getitem__(self, index):
-        if self.cache:
-            item = self.item_list[index]
-            # get geodesic distance matrix
-            if self.return_dist:
-                item['dist'] = get_geodesic_distmat(item['verts'], item['faces'], cache_dir=os.path.join(self.data_root, 'dist'))
-            # special case for DT4D dataset
-            if isinstance(self, SingleDT4DDataset):
-                # we still need to load the corr on the fly because the Pair DT4D Dataset is modifying it on the fly
-                if self.return_corr:
-                    corr = np.loadtxt(self.corr_files[index], dtype=np.int32) - 1  # minus 1 to start from 0
-                    item['corr'] = torch.from_numpy(corr).long()
-            return item
         item = dict()
 
         # get shape name
@@ -155,16 +85,8 @@ class SingleShapeDataset(Dataset):
         if self.return_faces:
             item['faces'] = torch.from_numpy(faces).long()
 
-        # get eigenfunctions/eigenvalues
-        if self.return_evecs:
-            item = get_spectral_ops(item, num_evecs=self.num_evecs, cache_dir=os.path.join(self.data_root, 'diffusion'))
-        
-        if self.return_elas_evecs:
-            item = get_elas_spectral_ops(item, num_evecs=self.num_evecs, bending_weight=self.bending_weight, cache_dir=os.path.join(self.data_root, 'elastic'))
-
-        # get geodesic distance matrix
-        if self.return_dist:
-            item['dist'] = get_geodesic_distmat(item['verts'], item['faces'], cache_dir=os.path.join(self.data_root, 'dist'))
+        # get shape operators and data
+        item = get_shape_operators_and_data(item, cache_dir=os.path.join(self.data_root), config={**self.config, "return_dist": False})
 
         # get correspondences
         if self.return_corr:
@@ -181,12 +103,11 @@ class SingleShapeDataset(Dataset):
 class SingleFaustDataset(SingleShapeDataset):
     def __init__(self, data_root,
                  phase, return_faces=True,
-                 return_evecs=True, num_evecs=200,
-                 return_corr=True, return_dist=False, return_elas_evecs=False, bending_weight=1e-2, cache=True):
+                 return_corr=True, **config):
+        self.config = config
         self.phase = phase
         super(SingleFaustDataset, self).__init__(data_root, return_faces,
-                                                 return_evecs, num_evecs,
-                                                 return_corr, return_dist, return_elas_evecs, bending_weight, cache)
+                                                 return_corr, **config)
         assert phase in ['train', 'test', 'full'], f'Invalid phase {phase}, only "train" or "test" or "full"'
 
     def _init_data(self):
@@ -200,12 +121,6 @@ class SingleFaustDataset(SingleShapeDataset):
             corr_path = os.path.join(self.data_root, 'corres')
             assert os.path.isdir(corr_path), f'Invalid path {corr_path} not containing .vts files'
             self.corr_files = sort_list(glob(f'{corr_path}/*.vts'))
-
-        # check the data path contains .mat files
-        if self.return_dist:
-            dist_path = os.path.join(self.data_root, 'dist')
-            assert os.path.isdir(dist_path), f'Invalid path {dist_path} not containing .mat files'
-            self.dist_files = sort_list(glob(f'{dist_path}/*.mat'))
         
         # sanity check
         self._size = len(self.off_files)
@@ -217,16 +132,12 @@ class SingleFaustDataset(SingleShapeDataset):
                 self.off_files = self.off_files[:80]
             if self.corr_files:
                 self.corr_files = self.corr_files[:80]
-            if self.dist_files:
-                self.dist_files = self.dist_files[:80]
             self._size = 80
         elif self.phase == 'test':
             if self.off_files:
                 self.off_files = self.off_files[80:]
             if self.corr_files:
                 self.corr_files = self.corr_files[80:]
-            if self.dist_files:
-                self.dist_files = self.dist_files[80:]
             self._size = 20
 
 
@@ -234,13 +145,12 @@ class SingleFaustDataset(SingleShapeDataset):
 class SingleScapeDataset(SingleShapeDataset):
     def __init__(self, data_root,
                  phase, return_faces=True,
-                 return_evecs=True, num_evecs=200,
-                 return_corr=True, return_dist=False, return_elas_evecs=False, bending_weight=1e-2, cache=True):
+                 return_corr=True, **config):
+        self.config = config
         self.phase = phase
         assert phase in ['train', 'test', 'full'], f'Invalid phase {phase}, only "train" or "test" or "full"'
         super(SingleScapeDataset, self).__init__(data_root, return_faces,
-                                                 return_evecs, num_evecs,
-                                                 return_corr, return_dist, return_elas_evecs, bending_weight, cache)
+                                                 return_corr, **config)
         
     def _init_data(self):
         # check the data path contains .off files
@@ -253,12 +163,6 @@ class SingleScapeDataset(SingleShapeDataset):
             corr_path = os.path.join(self.data_root, 'corres')
             assert os.path.isdir(corr_path), f'Invalid path {corr_path} not containing .vts files'
             self.corr_files = sort_list(glob(f'{corr_path}/*.vts'))
-
-        # check the data path contains .mat files
-        if self.return_dist:
-            dist_path = os.path.join(self.data_root, 'dist')
-            assert os.path.isdir(dist_path), f'Invalid path {dist_path} not containing .mat files'
-            self.dist_files = sort_list(glob(f'{dist_path}/*.mat'))
         
         # sanity check
         self._size = len(self.off_files)
@@ -270,16 +174,12 @@ class SingleScapeDataset(SingleShapeDataset):
                 self.off_files = self.off_files[:51]
             if self.corr_files:
                 self.corr_files = self.corr_files[:51]
-            if self.dist_files:
-                self.dist_files = self.dist_files[:51]
             self._size = 51
         elif self.phase == 'test':
             if self.off_files:
                 self.off_files = self.off_files[51:]
             if self.corr_files:
                 self.corr_files = self.corr_files[51:]
-            if self.dist_files:
-                self.dist_files = self.dist_files[51:]
             self._size = 20
 
 
@@ -409,11 +309,11 @@ class PairDataset(PairShapeDataset):
 class PairFaustDataset(PairShapeDataset):
     def __init__(self, data_root,
                  phase, include_same_pair=True, return_faces=True,
-                 return_evecs=True, num_evecs=200,
-                 return_corr=True, return_dist=False, return_elas_evecs=False, bending_weight=1e-2, cache=True):
+                 return_corr=True, **config):
+        self.config = config
+        self.data_root = data_root
         dataset = SingleFaustDataset(data_root, phase, return_faces,
-                                     return_evecs, num_evecs,
-                                     return_corr, return_dist, return_elas_evecs, bending_weight, cache)
+                                     return_corr, **config)
         dataset.include_same_pair = include_same_pair
         super(PairFaustDataset, self).__init__(dataset)
 
@@ -422,11 +322,11 @@ class PairFaustDataset(PairShapeDataset):
 class PairScapeDataset(PairShapeDataset):
     def __init__(self, data_root,
                  phase, include_same_pair=True, return_faces=True,
-                 return_evecs=True, num_evecs=200,
-                 return_corr=True, return_dist=False, return_elas_evecs=False, bending_weight=1e-2, cache=True):
+                 return_corr=True, **config):
+        self.config = config
+        self.data_root = data_root
         dataset = SingleScapeDataset(data_root, phase, return_faces,
-                                     return_evecs, num_evecs,
-                                     return_corr, return_dist, return_elas_evecs, bending_weight, cache)
+                                     return_corr, **config)
         dataset.include_same_pair = include_same_pair
         super(PairScapeDataset, self).__init__(dataset)
 
@@ -567,8 +467,8 @@ class PairShrec16Dataset(Dataset):
                  data_root,
                  categories=None,
                  cut_type='cuts', return_faces=True,
-                 return_evecs=True, num_evecs=200,
-                 return_corr=False, return_dist=False, return_elas_evecs=False, bending_weight=1e-2, cache=True):
+                 return_corr=False, **config):
+        self.config = config
         assert cut_type in ['cuts', 'holes', 'cuts24'], f'Unrecognized cut type: {cut_type}'
 
         categories = self.categories if categories is None else categories
@@ -582,12 +482,7 @@ class PairShrec16Dataset(Dataset):
         # initialize
         self.data_root = data_root
         self.return_faces = return_faces
-        self.return_evecs = return_evecs
         self.return_corr = return_corr
-        self.return_dist = return_dist
-        self.num_evecs = num_evecs
-        self.return_elas_evecs = return_elas_evecs
-        self.bending_weight = bending_weight
 
         # full shape files
         self.full_off_files = dict()
@@ -603,12 +498,6 @@ class PairShrec16Dataset(Dataset):
             off_file = os.path.join(off_path, f'{cat}.off')
             assert os.path.isfile(off_file)
             self.full_off_files[cat] = off_file
-
-        if return_dist:
-            dist_path = os.path.join(data_root, 'null', 'dist')
-            if not os.path.isdir(dist_path):
-                os.makedirs(dist_path)
-
 
         # load partial shape files
         self._size = 0
@@ -653,17 +542,8 @@ class PairShrec16Dataset(Dataset):
         if self.return_faces:
             full_data['faces'] = torch.from_numpy(faces_full).long().cpu()
 
-        # get eigenfunctions/eigenvalues
-        if self.return_evecs:
-            full_data = get_spectral_ops(full_data, self.num_evecs, cache_dir=os.path.join(self.data_root, 'null',
-                                                                                           'diffusion'))
-        
-        if self.return_elas_evecs:
-            full_data = get_elas_spectral_ops(full_data, num_evecs=self.num_evecs, bending_weight=self.bending_weight, cache_dir=os.path.join(self.data_root, 'null', 'elastic'))
-
-        # get geodesic distance matrix
-        if self.return_dist:
-            full_data['dist'] = get_geodesic_distmat(full_data['verts'], full_data['faces'], cache_dir=os.path.join(self.data_root, 'null', 'dist'))
+        # get shape operators and data
+        full_data = get_shape_operators_and_data(full_data, cache_dir=os.path.join(self.data_root), config=self.config)
 
         # get partial shape
         partial_data = dict()
@@ -676,13 +556,8 @@ class PairShrec16Dataset(Dataset):
         if self.return_faces:
             partial_data['faces'] = torch.from_numpy(faces).long().cpu()
 
-        # get eigenfunctions/eigenvalues
-        if self.return_evecs:
-            partial_data = get_spectral_ops(partial_data, self.num_evecs,
-                                            cache_dir=os.path.join(self.data_root, self.cut_type, 'diffusion'))
-        
-        if self.return_elas_evecs:
-            partial_data = get_elas_spectral_ops(partial_data, num_evecs=self.num_evecs, bending_weight=self.bending_weight, cache_dir=os.path.join(self.data_root, self.cut_type, 'elastic'))
+        # get shape operators and data
+        partial_data = get_shape_operators_and_data(partial_data, cache_dir=os.path.join(self.data_root), config={**self.config, "return_dist": False})
 
         # get correspondences
         if self.return_corr:
@@ -695,8 +570,6 @@ class PairShrec16Dataset(Dataset):
             full_data['partiality_mask'] = torch.from_numpy(squared_distances < 1e-5).float().cpu()
             # partial always has full correspondence
             partial_data['partiality_mask'] = torch.ones(len(verts)).float().cpu()
-
-            
 
         return {'first': full_data, 'second': partial_data}
 
