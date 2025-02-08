@@ -6,9 +6,11 @@
 </p>
 
 ## Coverage  
-- **Datasets**: `faust`, `scape`, `cuts`, `holes`, `cp2p`, `pfarm`  
+- **Datasets**: `faust`, `scape`, `cuts`, `holes`, `cp2p`, `pfarm`* 
 - **Evaluation Metrics**: `Geodesic Error`, `mIoU`
 - **Visualizations**: `texture`
+
+*pfarm dataset evaluation is implemented but results do not match paper (err ~25 vs reported 12). Various attempts including reorientation, normalization, and spatial pre-alignment have been made but still not reach the reported error. Contributions welcome to help debug!
 
 ## Downalod & unzip all datasets
 ```bash
@@ -96,9 +98,9 @@ solution: use deterministic hash to get reproducible seed for each pair, just li
 - faust
 - scape 
 - usuage guide
+- pfarm attempted, but didn't work out.
 
 ## 🔨 TODO  
-- pfarm
 - faust scape test configs
 - cuts holes ckpts faust scape
 - better readme (acknowledgements)

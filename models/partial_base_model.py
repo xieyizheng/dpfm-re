@@ -172,11 +172,10 @@ class PartialBaseModel(BaseModel):
                 tb_logger.add_scalar('val miou1', miou1, global_step=step)
                 tb_logger.add_scalar('val miou2', miou2, global_step=step)
             else:
-                # save images
-                plt.savefig(os.path.join(self.opt['path']['results_root'], 'pck.png'))
-                plt.savefig(os.path.join(self.opt['path']['results_root'], 'iou_curve.png'))
-                # save pcks
+                fig.savefig(os.path.join(self.opt['path']['results_root'], 'pck.png'))
+                iou_fig.savefig(os.path.join(self.opt['path']['results_root'], 'iou_curve.png'))
                 np.save(os.path.join(self.opt['path']['results_root'], 'pck.npy'), pcks)
+            plt.close('all')
 
             # display results
             logger = get_root_logger()

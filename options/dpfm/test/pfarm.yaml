@@ -1,10 +1,8 @@
 # general setting
-name: shrec16_cuts
 backend: dp # DataParallel
 type: DPFM_Model
 num_gpu: auto
 manual_seed: 1234
-
 
 # path
 path:
@@ -14,21 +12,20 @@ path:
 # datasets
 datasets:
   test_dataset:
-    name: Val
-    type: PairShrec16Dataset
-    cut_type: cuts
-    data_root: ../data/SHREC16_test/
-    return_evecs: true
-    return_faces: true
+    name: PFARMVal
+    type: PfarmDataset
+    data_root: ../data/pfarm/
+    return_evecs: True
+    return_faces: True
     num_evecs: 50
-    return_corr: true
-    return_dist: true
+    return_corr: True
+    return_dist: True
 
 # network setting
 networks:
   dpfm_net:
     type: DPFMNet
-    # -----from original repo------
+    # -----everything from official repo------
     cfg: 
       # fmap module params
       fmap:
@@ -44,14 +41,12 @@ networks:
         num_head: 4
         gnn_dim: 128
         ref_n_layers: 1
-        cross_sampling_ratio: 0.4
+        cross_sampling_ratio: 0.4 # this controls how points are downsampled for the attention module
         attention_type: normal
       # overlap module
       overlap:
         overlap_feat_dim: 32
     #----------------------------
-
-
 
 # validation setting
 val:
@@ -63,3 +58,5 @@ val:
       type: plot_pck_multiple
     plot_pck:
       type: plot_pck
+    plot_iou_curve:
+      type: plot_iou_curve

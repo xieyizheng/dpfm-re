@@ -7,7 +7,46 @@ import polyscope as ps
 import polyscope.imgui as psim
 import time
 from os import path as osp
+def compute_kabsch_rotation(X, Y):
+    """
+    Compute the optimal rotation matrix R using the Kabsch algorithm
+    that minimizes the RMSD between the corresponding points in Y and X.
+    In other words, it computes R such that X \approx R @ Y (ignoring translations).
 
+    Args:
+        X (np.ndarray): Target points, shape (N, 3).
+        Y (np.ndarray): Source points (to be rotated), shape (N, 3).
+    
+    Returns:
+        R (np.ndarray): A 3x3 rotation matrix aligning Y to X.
+    """
+    # Ensure the arrays are of type float
+    X = X.astype(float)
+    Y = Y.astype(float)
+
+    # Compute centroids for each set.
+    centroid_X = X.mean(axis=0)
+    centroid_Y = Y.mean(axis=0)
+
+    # Center the points.
+    X_centered = X - centroid_X
+    Y_centered = Y - centroid_Y
+
+    # Compute the covariance matrix.
+    H = Y_centered.T @ X_centered  # (3,3) matrix
+
+    # SVD of the covariance matrix.
+    U, S, Vt = np.linalg.svd(H)
+    
+    # Compute the rotation matrix.
+    R = Vt.T @ U.T
+
+    # Correct for a reflection (if necessary)
+    if np.linalg.det(R) < 0:
+        Vt[-1, :] *= -1
+        R = Vt.T @ U.T
+
+    return R
 
 def harmonic_interpolation(V, F, boundary_indices, boundary_values):
     L = igl.cotmatrix(V, F)
@@ -26,7 +65,7 @@ def get_orientation_calibration_matrix(up_vector, front_vector):
     # align right, up, front dir of the input shape with/into x, y, z axis
     right_vector = np.cross(up_vector, front_vector)
     assert not np.allclose(right_vector, 0)  # ensure no degenerate input
-    matrix = np.column_stack((right_vector, up_vector, front_vector))
+    matrix = np.column_stack((right_vector, up_vector, front_vector)).astype(np.float32)
     return matrix
 
 

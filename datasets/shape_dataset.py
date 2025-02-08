@@ -13,6 +13,8 @@ from utils.registry import DATASET_REGISTRY
 from utils.shape_dataset_util import get_spectral_ops, get_elas_spectral_ops, sort_list, get_shape_operators_and_data
 from tqdm import tqdm
 import igl
+from utils.visualization_util import get_orientation_calibration_matrix, compute_kabsch_rotation
+
 
 
 class SingleShapeDataset(Dataset):
@@ -752,3 +754,107 @@ class PairTopKidsDataset(Dataset):
         return item
 
 
+@DATASET_REGISTRY.register()
+class PfarmDataset(Dataset):
+    """
+    Pfarm Dataset
+    """
+
+    def __init__(self, data_root, return_faces=True, return_corr=True, threshold=1e-4, **config):
+        """
+        Args:
+            data_root (str): Root directory for the pfarm dataset.
+            return_faces (bool, optional): Whether to include faces.
+            return_corr (bool, optional): Whether to load correspondences.
+            threshold (float, optional): Threshold for creating a binary partiality mask.
+            **config: Additional configuration passed to get_shape_operators_and_data.
+        """
+        self.data_root = data_root
+        self.return_faces = return_faces
+        self.return_corr = return_corr
+        self.config = config
+        self.threshold = threshold
+
+        # Define subfolder paths
+        self.shapes_dir = os.path.join(data_root, "shapes")
+        self.maps_dir = os.path.join(data_root, "maps")
+        assert os.path.isdir(self.shapes_dir), f"Shapes directory not found: {self.shapes_dir}"
+        assert os.path.isdir(self.maps_dir), f"Maps directory not found: {self.maps_dir}"
+
+        # load all .map files and sort them
+        self.map_files = sorted(glob(os.path.join(self.maps_dir, "*.map")))
+        self._size = len(self.map_files)
+        assert self._size > 0, f"No .map files found in {self.maps_dir}"
+
+    def __len__(self):
+        return self._size
+
+    def __getitem__(self, index):
+        map_file = self.map_files[index]
+        map_filename = os.path.basename(map_file)
+        base = os.path.splitext(map_filename)[0]
+        parts = base.split('_')
+        if len(parts) != 2:
+            raise ValueError(f"Map file name format invalid (expected <partial>_<full>.map): {map_filename}")
+        partial_name = parts[0]
+        full_name = parts[1]
+
+        partial_off_file = os.path.join(self.shapes_dir, f"{partial_name}.off")
+        full_off_file = os.path.join(self.shapes_dir, f"{full_name}.off")
+        assert os.path.exists(partial_off_file), f"Partial shape file not found: {partial_off_file}"
+        assert os.path.exists(full_off_file), f"Full shape file not found: {full_off_file}"
+
+        partial_verts, partial_faces = read_shape(partial_off_file)
+        full_verts, full_faces = read_shape(full_off_file)
+
+        # normalize shape by sqrt of surface area of the full shape to get unit surface area
+        surface_area = igl.doublearea(full_verts, full_faces).sum() / 2.0
+        scale_factor = np.sqrt(surface_area)  # sqrt to get unit surface area after division
+        partial_verts /= scale_factor 
+        full_verts /= scale_factor
+
+        # Create data dictionaries and convert arrays to torch tensors
+        partial_data = dict()
+        full_data = dict()
+        partial_data["name"] = partial_name
+        full_data["name"] = full_name
+        partial_data["verts"] = torch.from_numpy(partial_verts).float()
+        full_data["verts"] = torch.from_numpy(full_verts).float()
+        if self.return_faces:
+            partial_data["faces"] = torch.from_numpy(partial_faces).long()
+            full_data["faces"] = torch.from_numpy(full_faces).long()
+
+        partial_data = get_shape_operators_and_data(
+            partial_data, cache_dir=self.data_root, config={**self.config, "return_dist": False}
+        )
+        full_data = get_shape_operators_and_data(full_data, cache_dir=self.data_root, config=self.config)
+
+        mapping = np.loadtxt(map_file, dtype=int)
+        num_partial = partial_data["verts"].shape[0]
+        if mapping.shape[0] != num_partial:
+            mapping = mapping[:num_partial]
+
+        full_data["corr"] = torch.from_numpy(mapping).long()
+        partial_data["corr"] = torch.arange(num_partial).long()
+
+        mapped_partial = full_data["verts"][full_data["corr"]]
+        full_verts_np = full_data["verts"].cpu().numpy()
+        mapped_partial_np = mapped_partial.cpu().numpy()
+        
+        sqr_dists, I, C = igl.point_mesh_squared_distance(full_verts_np, mapped_partial_np, partial_faces)
+        mask = (sqr_dists < self.threshold).astype(np.float32)
+        full_data["partiality_mask"] = torch.from_numpy(mask)
+        partial_data["partiality_mask"] = torch.ones(num_partial)
+
+        # reorient the shapes to align with the canonical orientation of cuts dataset
+        r_cp2p = get_orientation_calibration_matrix([0,0,1], [0,-1,0])
+        r_pfarm = get_orientation_calibration_matrix([0,1,0], [0,0,1])
+        r = r_cp2p @ r_pfarm.T
+        full_data["xyz"] = full_data["xyz"] @ r.T
+        partial_data["xyz"] = partial_data["xyz"] @ r.T
+
+        # pre-align the partial shape to the full shape in attempt to match the results in the paper, but still not
+        R = compute_kabsch_rotation(mapped_partial_np @ r.T, partial_data['xyz'].cpu().numpy()).astype(np.float32)
+        partial_data["xyz"] = partial_data["xyz"] @ R.T
+
+        return {"first": full_data, "second": partial_data}
