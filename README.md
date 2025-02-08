@@ -1,32 +1,39 @@
 # DPFM-RE[produce]  
 📌 **Reproduced DPFM with close results to the original paper.**  
-
 <p align="center">
   <img src="assets/teaser_texture.jpg" width="45%" style="display: inline-block;" />
   <img src="assets/teaser_pck.jpg" width="45%" style="display: inline-block;" />
 </p>
 
-## Scope  
-- **Datasets**: `cuts`, `holes`, `cp2p`, `pfarm`  
-- **Evaluation Metrics**:  
-  - Geodesic Error  
-  - PCK Curve  
-  - mIoU & mIoU Curve  
-- **Visualizations**: A script for generating figures  
+## Coverage  
+- **Datasets**: `faust`, `scape`, `cuts`, `holes`, `cp2p`, `pfarm`  
+- **Evaluation Metrics**: `Geodesic Error`, `mIoU`
+- **Visualizations**: `texture`
 
-## Downalod all datasets
+## Downalod & unzip all datasets
 ```bash
 bash dataset.sh
 ```
+```Shell
+├── data
+    ├── FAUST_r
+    ├── SCAPE_r
+    ├── SHREC16
+    ├── SHREC16_test
+    ├── CP2P
+    ├── CP2P_test
+    ├── pfarm
+```
+We thank the original dataset providers for their contributions to the shape analysis community, and that all credits should go to the the respective authors and contributors.
 
-## Data preparation
+
+## Preprocess
 All needed computations (e.g. eigenfunctions, geodesic distances) are automatically computed and cached on the fly. However, if you want to precompute them ahead of time, here is a script to iterate through the dataset.
 ```python
 python preprocess.py --opt options/dpfm/train/cp2p.yaml
 ```
 
 ## Train
-To train a specific model on a specified dataset.
 ```python
 python train.py --opt options/dpfm/train/cp2p.yaml
 ```
@@ -36,7 +43,6 @@ tensorboard --logdir experiments/
 ```
 
 ## Test
-To test a specific model on a specified dataset.
 ```python
 python test.py --opt options/dpfm/test/cp2p.yaml
 ```
@@ -49,7 +55,7 @@ Make sure to install the latest [polyscope](https://github.com/nmwsharp/polyscop
 pip uninstall polyscope
 pip install git+https://github.com/nmwsharp/polyscope-py.git
 ```
-To visualize the final results.
+To generate visualizations for test dataset.
 ```python
 python visualize.py --opt options/dpfm/test/cp2p.yaml
 ```
@@ -93,9 +99,12 @@ solution: use deterministic hash to get reproducible seed for each pair, just li
 
 ## 🔨 TODO  
 - pfarm
+- faust scape test configs
+- cuts holes ckpts faust scape
+- better readme (acknowledgements)
+- run everything
+---
+- propogate rest of shape dataset loading logic to other datasets
 - evecs number balance in visualization
 - val loss logging
-- cuts holes ckpts
-- better readme (acknowledgements)
-- propogate rest of shape dataset loading logic to other datasets
 
