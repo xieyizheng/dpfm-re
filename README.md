@@ -10,7 +10,7 @@
 - **Evaluation Metrics**: `Geodesic Error`, `mIoU`
 - **Visualizations**: `texture`
 
-*pfarm dataset evaluation is implemented but results do not match paper (err ~25 vs reported 12). Various attempts including reorientation, normalization, and spatial pre-alignment have been made but still not reach the reported error. Contributions welcome to help debug!
+*pfarm dataset evaluation is implemented and attempts were made but results do not match paper (err ~25 vs reported 12). Various attempts including reorientation, normalization, and spatial pre-alignment have been made. More ideas and contributions are welcome to help debug!
 
 ## Downalod & unzip all datasets
 ```bash
